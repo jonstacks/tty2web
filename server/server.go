@@ -9,28 +9,29 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	noesctmpl "text/template"
 	"time"
-	"os"
 
 	"github.com/NYTimes/gziphandler"
-	"github.com/elazarl/go-bindata-assetfs"
+	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 
-	"github.com/kost/tty2web/pkg/homedir"
-	"github.com/kost/tty2web/pkg/randomstring"
-	"github.com/kost/tty2web/webtty"
-	"fmt"
 	"bufio"
 	"bytes"
 	"encoding/base64"
-	"github.com/hashicorp/yamux"
+	"fmt"
 	"strings"
+
+	"github.com/hashicorp/yamux"
 	ntlmssp "github.com/kost/go-ntlmssp"
 	"github.com/kost/httpexecute"
 	"github.com/kost/regeorgo"
+	"github.com/kost/tty2web/pkg/homedir"
+	"github.com/kost/tty2web/pkg/randomstring"
+	"github.com/kost/tty2web/webtty"
 )
 
 var encBase64 = base64.StdEncoding.EncodeToString
@@ -44,7 +45,7 @@ func connectviaproxy(proxyaddr string, connectaddr string, proxyauth string) (ne
 	var password string
 	var useragent string
 	connectproxystring := ""
-	socksdebug:=true
+	socksdebug := true
 	proxyauthstring := &proxyauth
 	var dummyConn net.Conn
 
@@ -235,7 +236,7 @@ func connectForSocks(address string, proxy string, proxyauth string, agentpasswo
 			err := conntls.Handshake()
 			if err != nil {
 				log.Printf("Error connect: %v", err)
-				return yam,err
+				return yam, err
 			}
 			newconn = net.Conn(conntls)
 		} else {
@@ -324,6 +325,23 @@ func New(factory Factory, options *Options) (*Server, error) {
 	}, nil
 }
 
+func (server *Server) Serve(listener net.Listener) {
+	cctx, cancel := context.WithCancel(context.Background())
+	counter := newCounter(time.Duration(server.options.Timeout) * time.Second)
+	path := "/"
+
+	if server.options.Url != "" {
+		path = "/" + server.options.Url + "/"
+	}
+	if server.options.EnableRandomUrl {
+		path = "/" + randomstring.Generate(server.options.RandomUrlLength) + "/"
+	}
+
+	handlers := server.setupHandlers(cctx, cancel, path, counter)
+	srv, _ := server.setupHTTPServer(handlers)
+	srv.Serve(listener)
+}
+
 // Run starts the main process of the Server.
 // The cancelation of ctx will shutdown the server immediately with aborting
 // existing connections. Use WithGracefullContext() to support gracefull shutdown.
@@ -337,7 +355,7 @@ func (server *Server) Run(ctx context.Context, options ...RunOption) error {
 	counter := newCounter(time.Duration(server.options.Timeout) * time.Second)
 
 	path := "/"
-	if server.options.Url!="" {
+	if server.options.Url != "" {
 		path = "/" + server.options.Url + "/"
 	}
 	if server.options.EnableRandomUrl {
@@ -398,7 +416,7 @@ func (server *Server) Run(ctx context.Context, options ...RunOption) error {
 		}()
 	} else {
 		go func() {
-			session, err = connectForSocks(server.options.Connect,server.options.Proxy, server.options.ProxyAuth, server.options.Password)
+			session, err = connectForSocks(server.options.Connect, server.options.Proxy, server.options.ProxyAuth, server.options.Password)
 			if err != nil {
 				log.Printf("Error creating sessions %s", err)
 				srvErr <- err
@@ -448,14 +466,14 @@ func (server *Server) setupHandlers(ctx context.Context, cancel context.CancelFu
 
 	if server.options.All {
 		if server.options.FileDownload == "" {
-			server.options.FileDownload="/"
+			server.options.FileDownload = "/"
 		}
 		if server.options.FileUpload == "" {
 			server.options.FileUpload = "/"
 		}
-		server.options.API=true
-		server.options.Regeorg=true
-		server.options.Scexec=true
+		server.options.API = true
+		server.options.Regeorg = true
+		server.options.Scexec = true
 	}
 
 	siteMux.HandleFunc(pathPrefix, server.handleIndex)
